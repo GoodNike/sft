@@ -9,7 +9,7 @@
 #include <cstdlib>
 
 const uint16_t PORT = 8551;
-const size_t PAYLOAD = (1500 - 46) - 20 - 24;   // (Ethernet payload) - (IP header size) - (TCP header size).
+const size_t PAYLOAD = 1500 - 24 - 24;  // (Ethernet payload) - (IP header size) - (TCP header size).
 
 enum PROTOCOL_VERIONS : uint16_t {
     VERSION_01 = 0x0001
@@ -140,7 +140,7 @@ bool sender(const std::string &fileName, const std::string &ipAddr)
     return true;
 }
 
-int main(int argc, char **argv)
+int main(int argc, char *argv[])
 {
     opt::options_description desc("sft (Simple File Transfer) options");
 
