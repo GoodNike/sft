@@ -2,24 +2,28 @@
 #include <string>
 #include <fstream>
 #include <iterator>
+#include <iomanip>
 
 #include <boost/asio.hpp>
 #include <boost/program_options.hpp>
+#include <boost/filesystem.hpp>
 
 #include <cstdlib>
 
 const uint16_t PORT = 8551;
 const size_t PAYLOAD = 1500 - 24 - 24;  // (Ethernet payload) - (IP header size) - (TCP header size).
 
-enum PROTOCOL_VERIONS : uint16_t {
-    VERSION_01 = 0x0001
+enum PROTOCOL_VERIONS : uint64_t {
+    VERSION_01 = 0x0001,
+    VERSION_02 = 0x0002
 };
 
-const uint16_t CURRENT_VERSION = PROTOCOL_VERIONS::VERSION_01;
+const uint64_t CURRENT_VERSION = PROTOCOL_VERIONS::VERSION_02;
 
 struct header_t {
-    uint16_t version;
-    char fileName[PAYLOAD - sizeof(uint16_t)];
+    uint64_t version;
+    uint64_t fileSize;
+    char fileName[PAYLOAD - sizeof(uint64_t) - sizeof(uint64_t)];
 
     bool load(const char *data, size_t sz)
     {
@@ -28,7 +32,11 @@ struct header_t {
             return false;
         }
 
-        version = *reinterpret_cast<const uint16_t*>(data);
+        const char *ptr = data;
+        version = *reinterpret_cast<const uint64_t*>(ptr);
+        ptr += sizeof(uint64_t);
+        fileSize = *reinterpret_cast<const uint64_t*>(ptr);
+        ptr += sizeof(uint64_t);
 
 //        const auto begin = std::reverse_iterator(&data[2]);
 //        const auto end = std::reverse_iterator(&data[sz]);
@@ -36,7 +44,7 @@ struct header_t {
 //        if (pos != end) {
 //            std::copy(end, pos, fileName);
 //        } else {
-            std::copy(&data[2], &data[sz], fileName);
+            std::copy(ptr, &data[sz], fileName);
 //        }
 
         return true;
@@ -59,6 +67,8 @@ bool receiver()
         std::ofstream file;
 
         std::cout << "Incoming connection" << std::endl;
+        uint64_t totalRecieved = 0;
+        uint64_t fileSize = 0;
 
         while (true) {
             char data[PAYLOAD];
@@ -72,6 +82,9 @@ bool receiver()
                 if (hdr.version != CURRENT_VERSION) {
                     break;
                 }
+                if (hdr.fileSize == 0) {
+                    break;
+                }
                 file.open(hdr.fileName, std::ios::binary);
                 if (!file) {
                     break;
@@ -79,17 +92,25 @@ bool receiver()
                 headerRecieved = true;
 
                 std::cout << "File name: " << hdr.fileName << std::endl;
+                std::cout << "File size: " << hdr.fileSize << " bytes" << std::endl;
+                fileSize = hdr.fileSize;
 
                 continue;
             } else {
                 file.write(data, len);
+                totalRecieved += len;
+                auto prec = std::cout.precision();
+                auto width = std::cout.width();
+                std::cout << "Recieved: " << std::setw(6) << std::setprecision(2) << std::fixed << 100.0 * totalRecieved / fileSize << "%\r";
+                std::cout.precision(prec);
+                std::cout.width(width);
             }
 
             if (len == 0 || !sock.is_open()) {
                 file.close();
                 sock.close();
 
-                std::cout << "Finished receiving" << std::endl;
+                std::cout << std::endl << "Finished receiving" << std::endl;
 
                 break;
             }
@@ -106,11 +127,15 @@ bool sender(const std::string &fileName, const std::string &ipAddr)
         return false;
     }
 
+    auto fileSize = boost::filesystem::file_size(fileName);
+    decltype (fileSize) dataSended = 0;
+
     header_t hdr;
     if (fileName.size() >= sizeof(hdr.fileName)) {
         return false;
     }
     hdr.version = CURRENT_VERSION;
+    hdr.fileSize = fileSize;
     size_t length = fileName.copy(hdr.fileName, fileName.length());
     hdr.fileName[length] = '\0';
 
@@ -120,6 +145,7 @@ bool sender(const std::string &fileName, const std::string &ipAddr)
     ip::tcp::socket sock(service);
     sock.connect(ep);
 
+    std::cout << "File size: " << fileSize << " bytes" << std::endl;
     std::cout << "Connection established with receiver, sending file" << std::endl;
 
     sock.write_some(buffer(&hdr, sizeof(hdr)));
@@ -127,7 +153,14 @@ bool sender(const std::string &fileName, const std::string &ipAddr)
     while (true) {
         char data[PAYLOAD];
         file.read(data, PAYLOAD);
-        sock.write_some(buffer(data, file.gcount()));
+        auto sended = file.gcount();
+        sock.write_some(buffer(data, sended));
+        dataSended += sended;
+        auto prec = std::cout.precision();
+        auto width = std::cout.width();
+        std::cout << "Sended: " << std::setw(6) << std::setprecision(2) << std::fixed << 100.0 * dataSended / fileSize << "%\r";
+        std::cout.precision(prec);
+        std::cout.width(width);
         if (!file) {
             file.close();
             sock.close();
@@ -135,7 +168,7 @@ bool sender(const std::string &fileName, const std::string &ipAddr)
         }
     }
 
-    std::cout << "File sended" << std::endl;
+    std::cout << std::endl << "File sended" << std::endl;
 
     return true;
 }

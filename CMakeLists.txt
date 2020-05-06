@@ -5,7 +5,7 @@ project(sft LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Boost 1.65 REQUIRED COMPONENTS program_options system)
+find_package(Boost 1.65 REQUIRED COMPONENTS program_options system filesystem)
 
 add_executable(${PROJECT_NAME} main.cpp)
 
